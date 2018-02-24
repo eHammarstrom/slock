@@ -1,10 +1,10 @@
 module Main where
 
 import Control.Exception as E
-import System.IO
 import System.Directory
 import System.Exit
 import System.Environment
+import Data.Maybe
 import qualified Data.Text as T
 import qualified Data.List as L
 
@@ -41,7 +41,7 @@ getAllFiles' ignoreDirs paths = do
     prependPaths (p, ds) = map (\d -> p ++ d ++ "/") ds
 
     filterDirs :: [FilePath] -> [FilePath] -> [FilePath]
-    filterDirs igds ds = filter (\d -> not $ or $ map (`isPrefixedWith` d) igds) ds
+    filterDirs igds = filter (\d -> not $ any (`isPrefixedWith` d) igds)
 
 isPrefixedWith :: FilePath -> FilePath -> Bool
 isPrefixedWith prefix cs = T.isPrefixOf (T.pack prefix) (T.pack cs)
@@ -55,7 +55,7 @@ getAllFiles path ignoreDirs ignoreFileEndings = do
   return $ filteredFiles ignoreFileEndings fs
   where
     ignoreDirs' = map (\d -> path ++ "/" ++ d ++ "/") ignoreDirs
-    filteredFiles igfs fs = filter (\f -> not $ or $ map (`isSuffixedWith` f) igfs) fs
+    filteredFiles igfs = filter (\f -> not $ any (`isSuffixedWith` f) igfs)
 
 getFileSLOC :: FilePath -> IO Int
 getFileSLOC f = readLineCount `E.catch` handler
@@ -87,14 +87,17 @@ main = do
 
   let igFileFlag  = "--ignore-files="
   let igDirFlag   = "--ignore-dirs="
-  let ignoreFiles = parseOpt igFileFlag $ L.find (isPrefixedWith igFileFlag) args
-  let ignoreDirs  = parseOpt igDirFlag $ L.find (isPrefixedWith igDirFlag) args
+  let ignoreFiles = fromMaybe [] $ parseOpt igFileFlag $ L.find (isPrefixedWith igFileFlag) args
+  let ignoreDirs  = fromMaybe [] $ parseOpt igDirFlag  $ L.find (isPrefixedWith igDirFlag) args
+  let path        = filter (not . isPrefixedWith "--") args
 
-  case (length args, ignoreDirs, ignoreFiles) of
-    (1, Nothing, Nothing)     -> slock (args !! 0) [] []
-    (2, Just igds, Nothing)   -> slock (args !! 0) igds []
-    (2, Nothing, Just igfs)   -> slock (args !! 0) [] igfs
-    (3, Just igds, Just igfs) -> slock (args !! 0) igds igfs
-    (_, _, _) -> do
-      putStrLn "Usage: sloc PATH [--ignore-files=\"\"] [--ignore-dirs=\"\"]"
+  case path of
+    [path'] -> slock path' ignoreDirs ignoreFiles
+    _       -> do
+      putStrLn "Usage: sloc PATH [OPTIONS]\n\
+               \Options:\n\
+               \\t --ignore-files\n\
+               \\t\t\t List of ignored files, e.g. --ignore-files=\".o .out .cpp\"\n\
+               \\t --ignore-dirs\n\
+               \\t\t\t List of ignored files, e.g. --ignore-dirs=\".node-modules test\""
       exitFailure
