@@ -85,19 +85,17 @@ main :: IO ()
 main = do
   args <- getArgs
 
-  let igFileFlag  = "--ignore-files="
-  let igDirFlag   = "--ignore-dirs="
-  let ignoreFiles = fromMaybe [] $ parseOpt igFileFlag $ L.find (isPrefixedWith igFileFlag) args
-  let ignoreDirs  = fromMaybe [] $ parseOpt igDirFlag  $ L.find (isPrefixedWith igDirFlag) args
-  let path        = filter (not . isPrefixedWith "--") args
+  let igFTypesFlag = "--ignore-ftypes="
+  let igDirFlag    = "--ignore-dirs="
+  let ignoreFiles  = fromMaybe [] $ parseOpt igFTypesFlag $ L.find (isPrefixedWith igFTypesFlag) args
+  let ignoreDirs   = fromMaybe [] $ parseOpt igDirFlag  $ L.find (isPrefixedWith igDirFlag) args
+  let path         = filter (not . isPrefixedWith "--") args
 
   case path of
     [path'] -> slock path' ignoreDirs ignoreFiles
     _       -> do
-      putStrLn "Usage: sloc PATH [OPTIONS]\n\
-               \Options:\n\
-               \\t --ignore-files\n\
-               \\t\t\t List of ignored files, e.g. --ignore-files=\".o .out .cpp\"\n\
-               \\t --ignore-dirs\n\
-               \\t\t\t List of ignored files, e.g. --ignore-dirs=\".node-modules test\""
+      putStrLn "Usage: slock PATH [OPTIONS]\n\
+               \Available options:\n\
+               \\t --ignore-ftypes\t\t List file types to ignore, e.g. --ignore-ftypes=\".o .out .cpp\"\n\
+               \\t --ignore-dirs\t\t\t List directories to ignore, e.g. --ignore-dirs=\".node-modules test\""
       exitFailure
