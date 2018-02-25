@@ -19,7 +19,9 @@ sortFilesAndDir check path = do
   return $ map fst lsbs
 
 getFiles :: FilePath -> IO [FilePath]
-getFiles path = sortFilesAndDir doesFileExist path >>= \fs -> return $ map (path ++) fs
+getFiles path = do
+  fs <- sortFilesAndDir doesFileExist path
+  return $ map (path ++) fs
 
 getDirs :: FilePath -> IO [FilePath]
 getDirs = sortFilesAndDir doesDirectoryExist
@@ -68,9 +70,7 @@ getFileSLOC f = readLineCount `E.catch` handler
     handler _ = return 0
 
 stripPrefix :: String -> String -> String
-stripPrefix a b = case T.stripPrefix (T.pack a) (T.pack b) of
-  Just x  -> T.unpack x
-  Nothing -> b
+stripPrefix a b = T.unpack $ fromMaybe (T.pack "") $ T.stripPrefix (T.pack a) (T.pack b)
 
 parseOpt :: String -> Maybe String -> Maybe [String]
 parseOpt opt arg = (words . stripPrefix opt) <$> arg
