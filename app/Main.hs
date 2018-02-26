@@ -7,9 +7,40 @@ import System.Environment
 import Data.Maybe
 import qualified Data.Text as T
 import qualified Data.List as L
+import Data.List (dropWhile, dropWhileEnd)
+import Data.Char (isSpace)
 
-lineCount :: String -> Int
-lineCount = length . filter (== '\n')
+newtype SingleComment  = SC String
+data MultiComment      = MC String String
+data LangComment       = Lang SingleComment MultiComment
+
+language :: FileEnding -> LangComment
+language "hs" = Lang (SC "--") (MC "{-" "-}")
+language _    = Lang (SC "//") (MC "/*" "*/")
+
+type FileEnding       = String
+type File             = String
+type CommentNestDepth = Int
+
+lineCount' :: LangComment -> [String] -> CommentNestDepth -> Int -> Int
+lineCount' _ [] _ n                = n
+lineCount' lc@(Lang (SC sc) (MC lmc rmc)) (l:ls) depth n
+  | isPrefixedWith sc l    = lineCount' lc ls depth n
+  | isPrefixedWith lmc l &&
+    isSuffixedWith rmc  l  = lineCount' lc ls depth n
+  | isPrefixedWith lmc l   = lineCount' lc ls (depth + 1) n
+  | isPrefixedWith rmc l   = lineCount' lc ls (depth - 1) n
+  | isSuffixedWith rmc l   = lineCount' lc ls (depth - 1) n
+  | depth == 0             = lineCount' lc ls depth (n + 1)
+  | otherwise              = lineCount' lc ls depth n
+
+lineCount :: File -> FileEnding -> Int
+lineCount f fe =
+  let
+    trim = dropWhileEnd isSpace . dropWhile isSpace
+    lines' = (map trim . lines) f
+    lang = language fe
+  in lineCount' lang lines' 0 0
 
 sortFilesAndDir :: (FilePath -> IO Bool) -> FilePath -> IO [FilePath]
 sortFilesAndDir check path = do
@@ -45,10 +76,10 @@ getAllFiles' ignoreDirs paths = do
     filterDirs :: [FilePath] -> [FilePath] -> [FilePath]
     filterDirs igds = filter (\d -> not $ any (`isPrefixedWith` d) igds)
 
-isPrefixedWith :: FilePath -> FilePath -> Bool
+isPrefixedWith :: String -> String -> Bool
 isPrefixedWith prefix cs = T.isPrefixOf (T.pack prefix) (T.pack cs)
 
-isSuffixedWith :: FilePath -> FilePath -> Bool
+isSuffixedWith :: String -> String -> Bool
 isSuffixedWith suffix cs = T.isSuffixOf (T.pack suffix) (T.pack cs)
 
 getAllFiles :: FilePath -> [FilePath] -> [FilePath] -> IO [FilePath]
@@ -62,8 +93,10 @@ getAllFiles path ignoreDirs ignoreFileEndings = do
 getFileSLOC :: FilePath -> IO Int
 getFileSLOC f = readLineCount `E.catch` handler
   where
+    fileEnding = T.unpack . last . T.split (== '.') . T.pack
+
     readLineCount = do
-      l <- lineCount <$> readFile f
+      l <- (`lineCount` fileEnding f) <$> readFile f
       l `seq` return l
 
     handler :: SomeException -> IO Int
