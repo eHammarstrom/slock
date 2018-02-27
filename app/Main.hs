@@ -23,15 +23,12 @@ type File             = String
 type CommentNestDepth = Int
 
 lineCount' :: LangComment -> [String] -> CommentNestDepth -> Int -> Int
-lineCount' _ [] _ n                = n
+lineCount' _ [] _ n        = n
 lineCount' lc@(Lang (SC sc) (MC lmc rmc)) (l:ls) depth n
   | isPrefixedWith sc l    = lineCount' lc ls depth n
-  | isPrefixedWith lmc l &&
-    isSuffixedWith rmc  l  = lineCount' lc ls depth n
   | isPrefixedWith lmc l   = lineCount' lc ls (depth + 1) n
-  | isPrefixedWith rmc l   = lineCount' lc ls (depth - 1) n
   | isSuffixedWith rmc l   = lineCount' lc ls (depth - 1) n
-  | depth == 0             = lineCount' lc ls depth (n + 1)
+  | depth == 0 && l /= []  = lineCount' lc ls depth (n + 1)
   | otherwise              = lineCount' lc ls depth n
 
 lineCount :: File -> FileEnding -> Int
