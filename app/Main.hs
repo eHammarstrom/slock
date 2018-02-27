@@ -39,31 +39,17 @@ lineCount' :: LangComment -> [String] -> CommentNestDepth -> Int
 lineCount' _ [] _                 = 0
 lineCount' lc@(Lang (SC sc) mc@(MC lmc rmc)) (l:ls) depth
   -- // hello world
-  | isPrefixedWith sc l              = lineCount' lc ls depth
+  | isPrefixedWith sc l                           = lineCount' lc ls depth
   -- /* hello world */
-  | isPrefixedWith lmc l &&
-    isSuffixedWith rmc l             = lineCount' lc ls depth
-  | depth + nc == 0 &&
-    nonEmpty  = lineCount' lc ls 0 + 1
-{-
+  | isPrefixedWith lmc l && isSuffixedWith rmc l  = lineCount' lc ls depth
   -- printf("%d\n,/* hello world */ 10);
-  | depth + nc == 0 &&
-    nonEmpty &&
-    not (isPrefixedWith lmc l) &&
-    not (isSuffixedWith rmc l)       = lineCount' lc ls (depth + nc) + 1
   -- printf("%d\n", 10);/* hello world */
-  | depth == 0 &&
-    nc == 0 &&
-    isSuffixedWith rmc l  = lineCount' lc ls depth + 1
   -- /* Hello world */printf("%d\n, 10);
-  | depth == 0 &&
-    nc == 0 &&
-    isPrefixedWith lmc l  = lineCount' lc ls depth + 1
--}
-  | otherwise                        = lineCount' lc ls (depth + nc)
+  | depth + nc == 0 && nonEmpty                   = lineCount' lc ls 0 + 1
+  | otherwise                                     = lineCount' lc ls (depth + nc)
   where
-    nc         = nestCount mc l ""
-    nonEmpty = l /= []
+    nc        = nestCount mc l ""
+    nonEmpty  = l /= []
 
 lineCount :: File -> FileEnding -> Int
 lineCount f fe =
@@ -107,9 +93,6 @@ getAllFiles' ignoreDirs paths = do
     filterDirs :: [FilePath] -> [FilePath] -> [FilePath]
     filterDirs igds = filter (\d -> not $ any (`isPrefixedWith` d) igds)
 
-isInfixedWith :: String -> String -> Bool
-isInfixedWith as bs = T.isInfixOf (T.pack as) (T.pack bs)
-
 isPrefixedWith :: String -> String -> Bool
 isPrefixedWith as bs = T.isPrefixOf (T.pack as) (T.pack bs)
 
@@ -150,8 +133,6 @@ slock p igds igfs = do
 
 main :: IO ()
 main = do
-  slock "test/langs" [".out .o"] []
-  {-
   args <- getArgs
 
   let igFTypesFlag = "--ignore-ftypes="
@@ -168,4 +149,3 @@ main = do
                \\t --ignore-ftypes\t\t List file types to ignore, e.g. --ignore-ftypes=\".o .out .cpp\"\n\
                \\t --ignore-dirs\t\t\t List directories to ignore, e.g. --ignore-dirs=\".node-modules test\""
       exitFailure
--}
