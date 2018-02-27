@@ -10,6 +10,8 @@ import qualified Data.List as L
 import Data.List (dropWhile, dropWhileEnd)
 import Data.Char (isSpace)
 
+import Debug.Trace
+
 newtype SingleComment  = SC String
 data MultiComment      = MC String String
 data LangComment       = Lang SingleComment MultiComment
@@ -22,14 +24,30 @@ type FileEnding       = String
 type File             = String
 type CommentNestDepth = Int
 
-lineCount' :: LangComment -> [String] -> CommentNestDepth -> Int -> Int
-lineCount' _ [] _ n        = n
-lineCount' lc@(Lang (SC sc) (MC lmc rmc)) (l:ls) depth n
-  | isPrefixedWith sc l    = lineCount' lc ls depth n
-  | isPrefixedWith lmc l   = lineCount' lc ls (depth + 1) n
-  | isSuffixedWith rmc l   = lineCount' lc ls (depth - 1) n
-  | depth == 0 && l /= []  = lineCount' lc ls depth (n + 1)
-  | otherwise              = lineCount' lc ls depth n
+nestCount :: MultiComment -> String -> String -> CommentNestDepth
+-- the parse walk, build buffer, clear when finding term
+nestCount mc@(MC lmc rmc) (c:cs) buffer
+  | isPrefixedWith lmc buffer  = nestCount mc cs [] + 1
+  | isPrefixedWith rmc buffer  = nestCount mc cs [] - 1
+  | otherwise                  = nestCount mc cs (buffer ++ [c])
+nestCount mc@(MC lmc rmc) [] buffer
+  | isPrefixedWith lmc buffer  = nestCount mc [] [] + trace "last LMC" 1
+  | isPrefixedWith rmc buffer  = nestCount mc [] [] - trace "last RMC" 1
+  | otherwise = 0
+
+lineCount' :: LangComment -> [String] -> CommentNestDepth -> Int
+lineCount' _ [] _               = 0
+lineCount' lc@(Lang (SC sc) mc@(MC lmc rmc)) (l:ls) depth
+  | isPrefixedWith sc l         = lineCount' lc ls depth
+  | depth + nc == 0 && l /= [] &&
+    isInfixedWith lmc l &&
+    isPrefixedWith rmc l        = lineCount' lc ls (depth + nc) + 1
+  | depth + nc == 0 && l /= [] &&
+    not (isPrefixedWith lmc l) &&
+    not (isSuffixedWith rmc l)  = lineCount' lc ls (depth + nc) + 1
+  | otherwise                   = lineCount' lc ls (depth + nc)
+  where
+    nc = nestCount mc l ""
 
 lineCount :: File -> FileEnding -> Int
 lineCount f fe =
@@ -37,7 +55,7 @@ lineCount f fe =
     trim = dropWhileEnd isSpace . dropWhile isSpace
     lines' = (map trim . lines) f
     lang = language fe
-  in lineCount' lang lines' 0 0
+  in lineCount' lang lines' 0
 
 sortFilesAndDir :: (FilePath -> IO Bool) -> FilePath -> IO [FilePath]
 sortFilesAndDir check path = do
@@ -73,11 +91,14 @@ getAllFiles' ignoreDirs paths = do
     filterDirs :: [FilePath] -> [FilePath] -> [FilePath]
     filterDirs igds = filter (\d -> not $ any (`isPrefixedWith` d) igds)
 
+isInfixedWith :: String -> String -> Bool
+isInfixedWith as bs = T.isInfixOf (T.pack as) (T.pack bs)
+
 isPrefixedWith :: String -> String -> Bool
-isPrefixedWith prefix cs = T.isPrefixOf (T.pack prefix) (T.pack cs)
+isPrefixedWith as bs = T.isPrefixOf (T.pack as) (T.pack bs)
 
 isSuffixedWith :: String -> String -> Bool
-isSuffixedWith suffix cs = T.isSuffixOf (T.pack suffix) (T.pack cs)
+isSuffixedWith as bs = T.isSuffixOf (T.pack as) (T.pack bs)
 
 getAllFiles :: FilePath -> [FilePath] -> [FilePath] -> IO [FilePath]
 getAllFiles path ignoreDirs ignoreFileEndings = do
@@ -113,6 +134,8 @@ slock p igds igfs = do
 
 main :: IO ()
 main = do
+  slock "app" [] []
+  {-
   args <- getArgs
 
   let igFTypesFlag = "--ignore-ftypes="
@@ -129,3 +152,4 @@ main = do
                \\t --ignore-ftypes\t\t List file types to ignore, e.g. --ignore-ftypes=\".o .out .cpp\"\n\
                \\t --ignore-dirs\t\t\t List directories to ignore, e.g. --ignore-dirs=\".node-modules test\""
       exitFailure
+-}
