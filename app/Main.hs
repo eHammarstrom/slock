@@ -27,27 +27,43 @@ type CommentNestDepth = Int
 nestCount :: MultiComment -> String -> String -> CommentNestDepth
 -- the parse walk, build buffer, clear when finding term
 nestCount mc@(MC lmc rmc) (c:cs) buffer
-  | isPrefixedWith lmc buffer  = nestCount mc cs [] + 1
-  | isPrefixedWith rmc buffer  = nestCount mc cs [] - 1
+  | isSuffixedWith lmc buffer  = nestCount mc cs [] + 1
+  | isSuffixedWith rmc buffer  = nestCount mc cs [] - 1
   | otherwise                  = nestCount mc cs (buffer ++ [c])
 nestCount mc@(MC lmc rmc) [] buffer
-  | isPrefixedWith lmc buffer  = nestCount mc [] [] + trace "last LMC" 1
-  | isPrefixedWith rmc buffer  = nestCount mc [] [] - trace "last RMC" 1
+  | isSuffixedWith lmc buffer  = nestCount mc [] [] + 1
+  | isSuffixedWith rmc buffer  = nestCount mc [] [] - 1
   | otherwise = 0
 
 lineCount' :: LangComment -> [String] -> CommentNestDepth -> Int
-lineCount' _ [] _               = 0
+lineCount' _ [] _                 = 0
 lineCount' lc@(Lang (SC sc) mc@(MC lmc rmc)) (l:ls) depth
-  | isPrefixedWith sc l         = lineCount' lc ls depth
-  | depth + nc == 0 && l /= [] &&
-    isInfixedWith lmc l &&
-    isPrefixedWith rmc l        = lineCount' lc ls (depth + nc) + 1
-  | depth + nc == 0 && l /= [] &&
+  -- // hello world
+  | isPrefixedWith sc l              = lineCount' lc ls depth
+  -- /* hello world */
+  | isPrefixedWith lmc l &&
+    isSuffixedWith rmc l             = lineCount' lc ls depth
+  | depth + nc == 0 &&
+    nonEmpty  = lineCount' lc ls 0 + 1
+{-
+  -- printf("%d\n,/* hello world */ 10);
+  | depth + nc == 0 &&
+    nonEmpty &&
     not (isPrefixedWith lmc l) &&
-    not (isSuffixedWith rmc l)  = lineCount' lc ls (depth + nc) + 1
-  | otherwise                   = lineCount' lc ls (depth + nc)
+    not (isSuffixedWith rmc l)       = lineCount' lc ls (depth + nc) + 1
+  -- printf("%d\n", 10);/* hello world */
+  | depth == 0 &&
+    nc == 0 &&
+    isSuffixedWith rmc l  = lineCount' lc ls depth + 1
+  -- /* Hello world */printf("%d\n, 10);
+  | depth == 0 &&
+    nc == 0 &&
+    isPrefixedWith lmc l  = lineCount' lc ls depth + 1
+-}
+  | otherwise                        = lineCount' lc ls (depth + nc)
   where
-    nc = nestCount mc l ""
+    nc         = nestCount mc l ""
+    nonEmpty = l /= []
 
 lineCount :: File -> FileEnding -> Int
 lineCount f fe =
@@ -134,7 +150,7 @@ slock p igds igfs = do
 
 main :: IO ()
 main = do
-  slock "app" [] []
+  slock "test/langs" [".out .o"] []
   {-
   args <- getArgs
 
