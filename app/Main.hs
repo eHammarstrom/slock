@@ -10,8 +10,6 @@ import qualified Data.List as L
 import Data.List (dropWhile, dropWhileEnd)
 import Data.Char (isSpace)
 
-import Debug.Trace
-
 newtype SingleComment  = SC String
 data MultiComment      = MC String String
 data LangComment       = Lang SingleComment MultiComment
@@ -33,20 +31,25 @@ nestCount mc@(MC lmc rmc) (c:cs) buffer
 nestCount mc@(MC lmc rmc) [] buffer
   | isSuffixedWith lmc buffer  = nestCount mc [] [] + 1
   | isSuffixedWith rmc buffer  = nestCount mc [] [] - 1
-  | otherwise = 0
+  | otherwise                  = 0
 
 lineCount' :: LangComment -> [String] -> CommentNestDepth -> Int
-lineCount' _ [] _                 = 0
+lineCount' _ [] _                = 0
 lineCount' lc@(Lang (SC sc) mc@(MC lmc rmc)) (l:ls) depth
   -- // hello world
-  | isPrefixedWith sc l                           = lineCount' lc ls depth
+  | isPrefixedWith sc l          = lineCount' lc ls depth
   -- /* hello world */
-  | isPrefixedWith lmc l && isSuffixedWith rmc l  = lineCount' lc ls depth
+  | isPrefixedWith lmc l &&
+    isSuffixedWith rmc l         = lineCount' lc ls depth
+  -- trailing multiline fix, otherwise: someCode */ == someCode /* end comment */
+  | depth + nc == 0 && nonEmpty &&
+    isSuffixedWith rmc l &&
+    not (isInfixedWith lmc l)    = lineCount' lc ls 0
   -- printf("%d\n,/* hello world */ 10);
   -- printf("%d\n", 10);/* hello world */
   -- /* Hello world */printf("%d\n, 10);
-  | depth + nc == 0 && nonEmpty                   = lineCount' lc ls 0 + 1
-  | otherwise                                     = lineCount' lc ls (depth + nc)
+  | depth + nc == 0 && nonEmpty  = lineCount' lc ls 0 + 1
+  | otherwise                    = lineCount' lc ls (depth + nc)
   where
     nc        = nestCount mc l ""
     nonEmpty  = l /= []
@@ -92,6 +95,9 @@ getAllFiles' ignoreDirs paths = do
 
     filterDirs :: [FilePath] -> [FilePath] -> [FilePath]
     filterDirs igds = filter (\d -> not $ any (`isPrefixedWith` d) igds)
+
+isInfixedWith :: String -> String -> Bool
+isInfixedWith as bs = T.isInfixOf (T.pack as) (T.pack bs)
 
 isPrefixedWith :: String -> String -> Bool
 isPrefixedWith as bs = T.isPrefixOf (T.pack as) (T.pack bs)
