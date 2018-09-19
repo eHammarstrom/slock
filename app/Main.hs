@@ -1,14 +1,18 @@
 module Main where
 
-import Control.Exception as E
-import System.Directory
-import System.Exit
-import System.Environment
-import Data.Maybe
-import qualified Data.Text as T
-import qualified Data.List as L
-import Data.List (dropWhile, dropWhileEnd)
-import Data.Char (isSpace)
+import           Control.Exception            as E
+import           Data.Char                    (isSpace)
+import           Data.List                    (dropWhile, dropWhileEnd)
+import qualified Data.List                    as L
+import           Data.Maybe
+import qualified Data.Text                    as T
+import           System.Directory
+import           System.Environment
+import           System.Exit
+
+import           Control.Monad.IO.Class       (liftIO)
+import           Control.Monad.Par.Combinator (parMapM)
+import           Control.Monad.Par.IO         (runParIO)
 
 newtype SingleComment  = SC String
 data MultiComment      = MC String String
@@ -80,7 +84,8 @@ getDirs = sortFilesAndDir doesDirectoryExist
 getAllFiles' :: [FilePath] -> [FilePath] -> IO [FilePath]
 getAllFiles' _ [] = return []
 getAllFiles' ignoreDirs paths = do
-  files <- mapM getFiles paths
+  -- files <- mapM getFiles paths
+  files <- runParIO $ parMapM (\p -> liftIO $ getFiles p) paths
   dirs  <- mapM getDirs paths
 
   let files' = concat files
@@ -134,7 +139,10 @@ parseOpt opt arg = (words . stripPrefix opt) <$> arg
 slock :: FilePath -> [FilePath] -> [FilePath] -> IO ()
 slock p igds igfs = do
   fs    <- getAllFiles p igds igfs
-  slocs <- mapM getFileSLOC fs
+  -- count sloc over all files
+  -- slocs <- getFileSLOC
+  slocs <- runParIO $ parMapM (\f -> liftIO $ getFileSLOC f) fs
+
   putStrLn $ "sloc: " ++ show (sum slocs)
 
 main :: IO ()
