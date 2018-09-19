@@ -14,6 +14,19 @@ import           Control.Monad.IO.Class       (liftIO)
 import           Control.Monad.Par.Combinator (parMapM)
 import           Control.Monad.Par.IO         (runParIO)
 
+import           Control.Monad.State.Lazy
+import           Text.Regex.Posix
+
+type RegexStr         = String
+type FileEnding       = String
+type File             = String
+type CommentNestDepth = Int
+
+data SState = SState { root_path    :: String
+                     , files        :: ![File]
+                     , ignore_regxs :: [RegexStr]
+                     }
+
 newtype SingleComment  = SC String
 data MultiComment      = MC String String
 data LangComment       = Lang SingleComment MultiComment
@@ -21,10 +34,6 @@ data LangComment       = Lang SingleComment MultiComment
 language :: FileEnding -> LangComment
 language "hs" = Lang (SC "--") (MC "{-" "-}")
 language _    = Lang (SC "//") (MC "/*" "*/")
-
-type FileEnding       = String
-type File             = String
-type CommentNestDepth = Int
 
 nestCount :: MultiComment -> String -> String -> CommentNestDepth
 -- the parse walk, build buffer, clear when finding term

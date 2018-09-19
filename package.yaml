@@ -25,6 +25,8 @@ dependencies:
 - text >= 1.2.3.0
 - monad-par
 - monad-par-extras
+- mtl
+- regex-posix
 
 library:
   source-dirs: src
@@ -37,6 +39,7 @@ executables:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    - -eventlog
     dependencies:
     - slock
 
