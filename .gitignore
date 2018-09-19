@@ -3,3 +3,4 @@ slock.cabal
 *~
 dist/
 slock
+*.eventlog
