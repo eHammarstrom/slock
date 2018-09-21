@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main where
 
 import           Control.Exception            as E
@@ -105,10 +107,10 @@ getAllFiles paths = do
   let files' = concat files
   let dirs'  = concatMap prependPaths $ zip paths dirs
 
-  let regCheck' = flip regCheck $ ignore_regxs s
+  let ignored' = flip regCheck $ ignore_regxs s
 
-  let filteredFiles = filter regCheck' files'
-  let filteredDirs = filter regCheck' dirs'
+  let filteredFiles = filter (not . ignored') files'
+  let filteredDirs = filter (not . ignored') dirs'
 
   addFiles filteredFiles
 
