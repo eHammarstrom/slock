@@ -22,10 +22,12 @@ type FileEnding       = String
 type File             = String
 type CommentNestDepth = Int
 
-data SState = SState { root_path    :: String
-                     , files        :: ![File]
-                     , ignore_regxs :: [RegexStr]
-                     }
+data StateRec = StateRec { root_path    :: String
+                         , files        :: ![File]
+                         , ignore_regxs :: [RegexStr]
+                         }
+
+type SState a = StateT StateRec IO a
 
 newtype SingleComment  = SC String
 data MultiComment      = MC String String
@@ -90,25 +92,30 @@ getFiles path = do
 getDirs :: FilePath -> IO [FilePath]
 getDirs = sortFilesAndDir doesDirectoryExist
 
-getAllFiles' :: [FilePath] -> [FilePath] -> IO [FilePath]
-getAllFiles' _ [] = return []
-getAllFiles' ignoreDirs paths = do
-  -- files <- mapM getFiles paths
-  files <- runParIO $ parMapM (\p -> liftIO $ getFiles p) paths
-  dirs  <- mapM getDirs paths
+regCheck :: FilePath -> [RegexStr] -> Bool
+regCheck x = any (==True) . map (\p -> x =~ p :: Bool)
+
+getAllFiles :: [FilePath] -> SState ()
+getAllFiles [] = return ()
+getAllFiles paths = do
+  s <- get
+  files <- liftIO . runParIO $ parMapM (\p -> liftIO $ getFiles p) paths
+  dirs  <- liftIO . runParIO $ parMapM (\d -> liftIO $ getDirs d)  paths
 
   let files' = concat files
   let dirs'  = concatMap prependPaths $ zip paths dirs
-  let filteredDirs = filterDirs ignoreDirs dirs'
 
-  files'' <- getAllFiles' ignoreDirs filteredDirs
-  return $ files' ++ files''
+  let regCheck' = flip regCheck $ ignore_regxs s
+
+  let filteredFiles = filter regCheck' files'
+  let filteredDirs = filter regCheck' dirs'
+
+  addFiles filteredFiles
+
+  getAllFiles filteredDirs
   where
     prependPaths :: (FilePath, [FilePath]) -> [FilePath]
     prependPaths (p, ds) = map (\d -> p ++ d ++ "/") ds
-
-    filterDirs :: [FilePath] -> [FilePath] -> [FilePath]
-    filterDirs igds = filter (\d -> not $ any (`isPrefixedWith` d) igds)
 
 isInfixedWith :: String -> String -> Bool
 isInfixedWith as bs = T.isInfixOf (T.pack as) (T.pack bs)
@@ -119,13 +126,10 @@ isPrefixedWith as bs = T.isPrefixOf (T.pack as) (T.pack bs)
 isSuffixedWith :: String -> String -> Bool
 isSuffixedWith as bs = T.isSuffixOf (T.pack as) (T.pack bs)
 
-getAllFiles :: FilePath -> [FilePath] -> [FilePath] -> IO [FilePath]
-getAllFiles path ignoreDirs ignoreFileEndings = do
-  fs <- getAllFiles' ignoreDirs' [path ++ "/"]
-  return $ filteredFiles ignoreFileEndings fs
-  where
-    ignoreDirs' = map (\d -> path ++ "/" ++ d ++ "/") ignoreDirs
-    filteredFiles igfs = filter (\f -> not $ any (`isSuffixedWith` f) igfs)
+searchFiles :: SState ()
+searchFiles = do
+  s <- get
+  getAllFiles [root_path s]
 
 getFileSLOC :: FilePath -> IO Int
 getFileSLOC f = readLineCount `E.catch` handler
@@ -142,33 +146,37 @@ getFileSLOC f = readLineCount `E.catch` handler
 stripPrefix :: String -> String -> String
 stripPrefix a b = T.unpack $ fromMaybe (T.pack "") $ T.stripPrefix (T.pack a) (T.pack b)
 
-parseOpt :: String -> Maybe String -> Maybe [String]
-parseOpt opt arg = (words . stripPrefix opt) <$> arg
+addFiles :: [FilePath] -> SState ()
+addFiles fs = do
+  s <- get
+  put $ s { files = ( files s ) ++ fs }
 
-slock :: FilePath -> [FilePath] -> [FilePath] -> IO ()
-slock p igds igfs = do
-  fs    <- getAllFiles p igds igfs
+slock :: SState ()
+slock = do
+  searchFiles
+
+  s <- get
+
   -- count sloc over all files
-  -- slocs <- getFileSLOC
-  slocs <- runParIO $ parMapM (\f -> liftIO $ getFileSLOC f) fs
+  slocs <- liftIO . runParIO $ parMapM (\f -> liftIO $ getFileSLOC f) (files s)
 
-  putStrLn $ "sloc: " ++ show (sum slocs)
+  liftIO . putStrLn $ "sloc: " ++ show (sum slocs)
 
 main :: IO ()
 main = do
   args <- getArgs
 
-  let igFTypesFlag = "--ignore-ftypes="
-  let igDirFlag    = "--ignore-dirs="
-  let ignoreFiles  = fromMaybe [] $ parseOpt igFTypesFlag $ L.find (isPrefixedWith igFTypesFlag) args
-  let ignoreDirs   = fromMaybe [] $ parseOpt igDirFlag  $ L.find (isPrefixedWith igDirFlag) args
-  let path         = filter (not . isPrefixedWith "--") args
+  let path = filter (not . isPrefixedWith "--") args
 
   case path of
-    [path'] -> slock path' ignoreDirs ignoreFiles
+    [path'] -> do
+      let initial_state = StateRec { root_path = path'
+                                   , files = []
+                                   , ignore_regxs = []
+                                   }
+
+      evalStateT slock initial_state
+
     _       -> do
-      putStrLn "Usage: slock PATH [OPTIONS]\n\
-               \Available options:\n\
-               \\t --ignore-ftypes\t\t List file types to ignore, e.g. --ignore-ftypes=\".o .out .cpp\"\n\
-               \\t --ignore-dirs\t\t\t List directories to ignore, e.g. --ignore-dirs=\".node-modules test\""
+      putStrLn "Usage: slock PATH\n"
       exitFailure
