@@ -84,8 +84,7 @@ lineCount f fe =
 
 sortFilesAndDir :: (FilePath -> IO Bool) -> FilePath -> IO [FilePath]
 sortFilesAndDir check path = do
-  let spath = T.unpack path
-  ls <- map T.pack <$> listDirectory spath
+  ls <- map T.pack <$> listDirectory (T.unpack path)
   bs <- mapM (\l -> check (T.append path l)) ls
   let lsbs = filter snd $ zip ls bs
   return $ map fst lsbs
