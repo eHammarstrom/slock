@@ -9,7 +9,7 @@ import qualified Data.List                    as L
 import           Data.Maybe
 import           Data.Text                    (Text)
 import qualified Data.Text                    as T
-import           Prelude                      hiding (FilePath)
+import           Prelude                      hiding (FilePath, lookup)
 import           System.Directory
 import           System.Environment
 import           System.Exit
@@ -89,13 +89,10 @@ sortFilesAndDir check path = do
   let lsbs = filter snd $ zip ls bs
   return $ map fst lsbs
 
-getFiles :: FilePath -> IO [FilePath]
-getFiles path = do
-  fs <- sortFilesAndDir (doesFileExist . T.unpack) path
+lookup :: (String -> IO Bool) -> FilePath -> IO [FilePath]
+lookup pred path = do
+  fs <- sortFilesAndDir (pred . T.unpack) path
   return $ map (T.append path) fs
-
-getDirs :: FilePath -> IO [FilePath]
-getDirs = sortFilesAndDir (doesDirectoryExist . T.unpack)
 
 regCheck :: Text -> [RegexStr] -> Bool
 regCheck x = any (==True) . map (\p -> x' =~ p :: Bool)
@@ -105,23 +102,20 @@ getAllFiles :: [FilePath] -> SState ()
 getAllFiles [] = return ()
 getAllFiles paths = do
   s <- get
-  files <- liftIO . runParIO $ parMapM (\p -> liftIO $ getFiles p) paths
-  dirs  <- liftIO . runParIO $ parMapM (\d -> liftIO $ getDirs d)  paths
-
-  let files' = concat files
-  let dirs'  = concatMap prependPaths $ zip paths dirs
+  files <- liftIO . runParIO $ parMapM (\p -> liftIO $ lookup doesFileExist p) paths
+  dirs  <- liftIO . runParIO $ parMapM (\p -> liftIO $ lookup doesDirectoryExist p)  paths
 
   let ignored' = flip regCheck $ ignore_regxs s
 
-  let filteredFiles = filter (not . ignored') files'
-  let filteredDirs = filter (not . ignored') dirs'
+  let filteredFiles = filter (not . ignored') (concat files)
+  let filteredDirs  = filter (not . ignored') (concat dirs)
 
   addFiles filteredFiles
 
   getAllFiles filteredDirs
   where
     prependPaths :: (FilePath, [FilePath]) -> [FilePath]
-    prependPaths (p, ds) = map (\d -> T.append (T.append p d) "/") ds
+    prependPaths (p, ds) = map (\d -> T.snoc (T.append p d) '/') ds
 
 searchFiles :: SState ()
 searchFiles = do
