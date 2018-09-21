@@ -7,7 +7,9 @@ import           Data.Char                    (isSpace)
 import           Data.List                    (dropWhile, dropWhileEnd)
 import qualified Data.List                    as L
 import           Data.Maybe
+import           Data.Text                    (Text)
 import qualified Data.Text                    as T
+import           Prelude                      hiding (FilePath)
 import           System.Directory
 import           System.Environment
 import           System.Exit
@@ -20,48 +22,49 @@ import           Control.Monad.State.Lazy
 import           Text.Regex.Posix
 
 type RegexStr         = String
-type FileEnding       = String
-type File             = String
+type FileEnding       = Text
+type File             = Text
+type FilePath         = Text
 type CommentNestDepth = Int
 
-data StateRec = StateRec { root_path    :: String
+data StateRec = StateRec { root_path    :: Text
                          , files        :: ![File]
                          , ignore_regxs :: [RegexStr]
                          }
 
 type SState a = StateT StateRec IO a
 
-newtype SingleComment  = SC String
-data MultiComment      = MC String String
+newtype SingleComment  = SC Text
+
+data MultiComment      = MC Text Text
 data LangComment       = Lang SingleComment MultiComment
 
 language :: FileEnding -> LangComment
 language "hs" = Lang (SC "--") (MC "{-" "-}")
 language _    = Lang (SC "//") (MC "/*" "*/")
 
-nestCount :: MultiComment -> String -> String -> CommentNestDepth
+nestCount :: MultiComment -> Text -> Text -> CommentNestDepth
 -- the parse walk, build buffer, clear when finding term
-nestCount mc@(MC lmc rmc) (c:cs) buffer
-  | isSuffixedWith lmc buffer  = nestCount mc cs [] + 1
-  | isSuffixedWith rmc buffer  = nestCount mc cs [] - 1
-  | otherwise                  = nestCount mc cs (buffer ++ [c])
-nestCount mc@(MC lmc rmc) [] buffer
-  | isSuffixedWith lmc buffer  = nestCount mc [] [] + 1
-  | isSuffixedWith rmc buffer  = nestCount mc [] [] - 1
-  | otherwise                  = 0
+nestCount mc@(MC lmc rmc) txt buffer
+  | T.null txt              = 0
+  | T.isSuffixOf lmc buffer = nestCount mc cs T.empty + 1
+  | T.isSuffixOf rmc buffer = nestCount mc cs T.empty - 1
+  | otherwise               = nestCount mc cs (T.snoc buffer c)
+    where cs = T.tail txt
+          c  = T.head txt
 
-lineCount' :: LangComment -> [String] -> CommentNestDepth -> Int
+lineCount' :: LangComment -> [Text] -> CommentNestDepth -> Int
 lineCount' _ [] _                = 0
 lineCount' lc@(Lang (SC sc) mc@(MC lmc rmc)) (l:ls) depth
   -- // hello world
-  | isPrefixedWith sc l          = lineCount' lc ls depth
+  | T.isPrefixOf sc l          = lineCount' lc ls depth
   -- /* hello world */
-  | isPrefixedWith lmc l &&
-    isSuffixedWith rmc l         = lineCount' lc ls depth
+  | T.isPrefixOf lmc l &&
+    T.isSuffixOf rmc l         = lineCount' lc ls depth
   -- trailing multiline fix, otherwise: someCode */ == someCode /* end comment */
   | depth + nc == 0 && nonEmpty &&
-    isSuffixedWith rmc l &&
-    not (isInfixedWith lmc l)    = lineCount' lc ls 0
+    T.isSuffixOf rmc l &&
+    not (T.isInfixOf lmc l)    = lineCount' lc ls 0
   -- printf("%d\n,/* hello world */ 10);
   -- printf("%d\n", 10);/* hello world */
   -- /* Hello world */printf("%d\n, 10);
@@ -69,33 +72,35 @@ lineCount' lc@(Lang (SC sc) mc@(MC lmc rmc)) (l:ls) depth
   | otherwise                    = lineCount' lc ls (depth + nc)
   where
     nc        = nestCount mc l ""
-    nonEmpty  = l /= []
+    nonEmpty  = not . T.null $ l
 
 lineCount :: File -> FileEnding -> Int
 lineCount f fe =
   let
-    trim = dropWhileEnd isSpace . dropWhile isSpace
-    lines' = (map trim . lines) f
+    trim = T.dropWhileEnd isSpace . T.dropWhile isSpace
+    lines' = (map trim . T.lines) f
     lang = language fe
   in lineCount' lang lines' 0
 
 sortFilesAndDir :: (FilePath -> IO Bool) -> FilePath -> IO [FilePath]
 sortFilesAndDir check path = do
-  ls <- listDirectory path
-  bs <- mapM (\l -> check (path ++ l)) ls
+  let spath = T.unpack path
+  ls <- map T.pack <$> listDirectory spath
+  bs <- mapM (\l -> check (T.append path l)) ls
   let lsbs = filter snd $ zip ls bs
   return $ map fst lsbs
 
 getFiles :: FilePath -> IO [FilePath]
 getFiles path = do
-  fs <- sortFilesAndDir doesFileExist path
-  return $ map (path ++) fs
+  fs <- sortFilesAndDir (doesFileExist . T.unpack) path
+  return $ map (T.append path) fs
 
 getDirs :: FilePath -> IO [FilePath]
-getDirs = sortFilesAndDir doesDirectoryExist
+getDirs = sortFilesAndDir (doesDirectoryExist . T.unpack)
 
-regCheck :: FilePath -> [RegexStr] -> Bool
-regCheck x = any (==True) . map (\p -> x =~ p :: Bool)
+regCheck :: Text -> [RegexStr] -> Bool
+regCheck x = any (==True) . map (\p -> x' =~ p :: Bool)
+  where x' = T.unpack x :: String
 
 getAllFiles :: [FilePath] -> SState ()
 getAllFiles [] = return ()
@@ -117,16 +122,7 @@ getAllFiles paths = do
   getAllFiles filteredDirs
   where
     prependPaths :: (FilePath, [FilePath]) -> [FilePath]
-    prependPaths (p, ds) = map (\d -> p ++ d ++ "/") ds
-
-isInfixedWith :: String -> String -> Bool
-isInfixedWith as bs = T.isInfixOf (T.pack as) (T.pack bs)
-
-isPrefixedWith :: String -> String -> Bool
-isPrefixedWith as bs = T.isPrefixOf (T.pack as) (T.pack bs)
-
-isSuffixedWith :: String -> String -> Bool
-isSuffixedWith as bs = T.isSuffixOf (T.pack as) (T.pack bs)
+    prependPaths (p, ds) = map (\d -> T.append (T.append p d) "/") ds
 
 searchFiles :: SState ()
 searchFiles = do
@@ -136,10 +132,10 @@ searchFiles = do
 getFileSLOC :: FilePath -> IO Int
 getFileSLOC f = readLineCount `E.catch` handler
   where
-    fileEnding = T.unpack . last . T.split (== '.') . T.pack
+    fileEnding = last . T.split (== '.')
 
     readLineCount = do
-      l <- (`lineCount` fileEnding f) <$> readFile f
+      l <- (`lineCount` fileEnding f) <$> T.pack <$> readFile (T.unpack f)
       l `seq` return l
 
     handler :: SomeException -> IO Int
@@ -166,9 +162,9 @@ slock = do
 
 main :: IO ()
 main = do
-  args <- getArgs
+  args <- map T.pack <$> getArgs
 
-  let path = filter (not . isPrefixedWith "--") args
+  let path = filter (not . T.isPrefixOf "--") args
 
   case path of
     [path'] -> do
